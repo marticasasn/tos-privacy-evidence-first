@@ -85,3 +85,6 @@ footer button {
   font-size: 14px;
   cursor: pointer;
 }
+
+
+.card.neutral { border-color: #6b7280; } /* gris */

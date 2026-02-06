@@ -28,7 +28,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return;
       }
 
+      console.log("DOMAIN:", domain);
       const summary = await fetchTosdrSummary(domain);
+      console.log("SUMMARY BACKGROUND:", summary);
       sendResponse({ summary });
     }
   );

@@ -93,6 +93,14 @@ function renderHeader({ domain, serviceName, grade }) {
 }
 
 function renderPoints(points = []) {
+  if (!points.length) {
+    const msg = document.createElement('div');
+    msg.className = 'status';
+    msg.textContent = 'No hay puntos públicos disponibles para este servicio en ToS;DR.';
+    contentEl.appendChild(msg);
+    return;
+  }
+
   const ordered = [...points].sort((a, b) => severity(b.type) - severity(a.type));
   const visible = expanded ? ordered : ordered.slice(0, 6);
 
@@ -178,5 +186,8 @@ function renderStatus(status, extra) {
 }
 
 function severity(type) {
-  return type === 'blocker' ? 3 : type === 'bad' ? 2 : 1;
+  return type === 'blocker' ? 4
+    : type === 'bad' ? 3
+    : type === 'neutral' ? 2
+    : 1;
 }
