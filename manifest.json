@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "ToS/Privacy — Evidence-First",
+  "description": "Analiza términos y privacidad solo cuando el usuario lo solicita.",
+  "version": "0.1.0",
+
+  "action": {
+    "default_popup": "popup/popup.html"
+  },
+
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+
+  "host_permissions": [
+    "https://api.tosdr.org/*"
+  ],
+
+  "icons": {
+    "128": "icons/icon-128.png"
+  },
+  
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://api.tosdr.org;"
+  }
+
+}
+
+
