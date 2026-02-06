@@ -1,5 +1,11 @@
+const headerEl = document.getElementById('header');
+const contentEl = document.getElementById('content');
 const analyzeBtn = document.getElementById('analyzeBtn');
-const resultEl = document.getElementById('result');
+
+let expanded = false;
+let currentSummary = null;
+
+analyzeBtn.addEventListener('click', analyze);
 
 async function getActiveTabId() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -7,48 +13,170 @@ async function getActiveTabId() {
   return tabs[0].id;
 }
 
-analyzeBtn.addEventListener('click', async () => {
-  resultEl.textContent = 'Analizando…';
+async function analyze() {
+  analyzeBtn.disabled = true;
+  analyzeBtn.textContent = 'Analizando…';
+  contentEl.textContent = '';
+  headerEl.textContent = '';
+  expanded = false;
 
   try {
     const tabId = await getActiveTabId();
     if (tabId == null) {
-      resultEl.textContent = 'No se pudo detectar la pestaña activa.';
+      renderStatus('api_error', 'No se pudo detectar la pestaña activa.');
       return;
     }
 
     const response = await chrome.runtime.sendMessage({
-      type: "ANALYZE_CURRENT_DOMAIN",
+      type: 'ANALYZE_CURRENT_DOMAIN',
       tabId
     });
 
     if (response?.error) {
-      resultEl.textContent = `Error: ${response.error}`;
+      renderStatus('api_error', response.error);
       return;
     }
 
-    const s = response?.summary;
-    if (!s) {
-      resultEl.textContent = 'No se pudo obtener el resumen.';
+    const summary = response?.summary;
+    if (!summary) {
+      renderStatus('api_error', 'No se pudo obtener el resumen.');
       return;
     }
 
-    if (s.status !== "ok") {
-      resultEl.textContent =
-        `Dominio: ${s.domain}\n` +
-        `Estado: ${s.status}\n` +
-        `No hay cobertura o hubo un error con ToS;DR.`;
-      return;
-    }
-    
-    resultEl.textContent =
-      `Dominio: ${s.domain}\n` +
-      (s.serviceName ? `Servicio: ${s.serviceName}\n` : "") +
-      (s.grade ? `Grade: ${s.grade}\n` : "") +
-      `Puntos: ${s.points?.length ?? 0}`;
-
-  } catch (err) {
-    console.error(err);
-    resultEl.textContent = 'Error inesperado.';
+    currentSummary = summary;
+    render(summary);
+  } catch (e) {
+    renderStatus('api_error');
+  } finally {
+    analyzeBtn.disabled = false;
+    analyzeBtn.textContent = 'Reintentar';
   }
-});
+}
+
+function render(summary) {
+  headerEl.textContent = '';
+  contentEl.textContent = '';
+
+  if (summary.status !== 'ok') {
+    renderHeader(summary); // al menos dominio si existe
+    renderStatus(summary.status);
+    return;
+  }
+
+  renderHeader(summary);
+  renderPoints(summary.points);
+}
+
+function renderHeader({ domain, serviceName, grade }) {
+  if (!domain && !serviceName && !grade) return;
+
+  if (domain) {
+    const domainEl = document.createElement('div');
+    domainEl.className = 'domain';
+    domainEl.textContent = domain;
+    headerEl.appendChild(domainEl);
+  }
+
+  if (serviceName) {
+    const serviceEl = document.createElement('div');
+    serviceEl.className = 'service';
+    serviceEl.textContent = serviceName;
+    headerEl.appendChild(serviceEl);
+  }
+
+  if (grade) {
+    const gradeEl = document.createElement('div');
+    gradeEl.className = 'grade ' + (grade === 'A' || grade === 'B' ? 'ok' : 'bad');
+    gradeEl.textContent = `Grade: ${grade}`;
+    headerEl.appendChild(gradeEl);
+  }
+}
+
+function renderPoints(points = []) {
+  const ordered = [...points].sort((a, b) => severity(b.type) - severity(a.type));
+  const visible = expanded ? ordered : ordered.slice(0, 6);
+
+  visible.forEach(renderPoint);
+
+  if (points.length > 6) {
+    const toggle = document.createElement('button');
+    toggle.textContent = expanded ? 'Ver menos' : 'Ver más';
+    toggle.addEventListener('click', () => {
+      expanded = !expanded;
+      contentEl.textContent = '';
+      renderPoints(points);
+    });
+    contentEl.appendChild(toggle);
+  }
+}
+
+function renderPoint(point) {
+  const card = document.createElement('div');
+  card.className = `card ${point.type}`;
+
+  const title = document.createElement('div');
+  title.className = 'card-title';
+  title.textContent = point.title || '(Sin título)';
+
+  const desc = document.createElement('div');
+  desc.className = 'card-desc';
+
+  const fullText = point.description || '';
+  const shortText = fullText.length > 160 ? fullText.slice(0, 160) + '…' : fullText;
+
+  let collapsed = fullText.length > 160;
+  desc.textContent = collapsed ? shortText : fullText;
+
+  const actions = document.createElement('div');
+  actions.className = 'card-actions';
+
+  if (collapsed) {
+    const toggle = document.createElement('button');
+    toggle.textContent = 'Ver detalle';
+    toggle.addEventListener('click', () => {
+      collapsed = !collapsed;
+      desc.textContent = collapsed ? shortText : fullText;
+      toggle.textContent = collapsed ? 'Ver detalle' : 'Ocultar';
+    });
+    actions.appendChild(toggle);
+  }
+
+  if (point.source) {
+    const link = document.createElement('a');
+    link.textContent = 'Ver fuente';
+    link.href = point.source;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    actions.appendChild(link);
+  }
+
+  card.appendChild(title);
+  card.appendChild(desc);
+  card.appendChild(actions);
+
+  contentEl.appendChild(card);
+}
+
+function renderStatus(status, extra) {
+  const msg = document.createElement('div');
+  msg.className = 'status';
+
+  let text = '';
+  switch (status) {
+    case 'no_coverage':
+      text = 'Este servicio no está cubierto todavía.';
+      break;
+    case 'rate_limited':
+      text = 'Demasiadas peticiones. Intenta de nuevo en unos minutos.';
+      break;
+    default:
+      text = 'No se pudo obtener la información.';
+  }
+
+  msg.textContent = extra ? `${text}\n${extra}` : text;
+  contentEl.appendChild(msg);
+}
+
+function severity(type) {
+  return type === 'blocker' ? 3 : type === 'bad' ? 2 : 1;
+}
