@@ -58,7 +58,7 @@ async function analyze() {
     currentSummary = null;
     setTosdrLink(null);
     hdrEl.textContent = '';
-    renderStatus('No se pudo obtener la información. Pulsa “Reintentar”.');
+    renderStatus('No se pudo analizar esta página. Algunas páginas (chrome://, extensiones, nueva pestaña) no permiten análisis.');
     analyzeBtn.textContent = 'Reintentar';
   } finally {
     analyzeBtn.disabled = false;
@@ -119,6 +119,28 @@ function renderHeader(summary) {
 
   const svcEl = document.createElement('div');
   svcEl.className = 'svc';
+
+  const path = safeString(summary.path);
+
+  // Heurística: si es google.com y la ruta apunta a flights/maps/etc.
+  const hint = inferSubservice(registrable, path);
+
+  if (hint) {
+    const h = document.createElement('div');
+    h.className = 'svc';
+    h.textContent = `Subservicio: ${hint}`;
+    hdrEl.appendChild(hostEl);
+    hdrEl.appendChild(svcEl);
+    if (grade) {
+      const g = document.createElement('div');
+      g.className = 'svc';
+      g.textContent = `Grade: ${grade}`;
+      hdrEl.appendChild(g);
+    }
+    hdrEl.appendChild(h);
+    return;
+  }
+
 
   if (serviceName) {
     const strong = document.createElement('strong');
@@ -344,4 +366,19 @@ function isSafeHttpUrl(url) {
   } catch {
     return false;
   }
+}
+
+
+function inferSubservice(registrableDomain, path) {
+  const d = String(registrableDomain || '').toLowerCase();
+  const p = String(path || '');
+
+  if (d === 'google.com') {
+    if (p.startsWith('/travel/flights')) return 'Google Flights';
+    if (p.startsWith('/maps')) return 'Google Maps';
+    if (p.startsWith('/search')) return 'Google Search';
+    if (p.startsWith('/travel')) return 'Google Travel';
+  }
+
+  return '';
 }
