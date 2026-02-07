@@ -1,18 +1,33 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <title>ToS / Privacy</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ToS/Privacy — Evidence-First</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
-  <header id="header"></header>
+  <header class="hdr" id="hdr"></header>
 
-  <main id="content"></main>
+  <section class="toolbar">
+    <div class="tabs" role="tablist" aria-label="Filtros">
+      <button id="tabRisks" class="tab" type="button" role="tab" aria-selected="true">Riesgos</button>
+      <button id="tabBlockers" class="tab" type="button" role="tab" aria-selected="false">Solo blockers</button>
+      <button id="tabAll" class="tab" type="button" role="tab" aria-selected="false">Todo</button>
+    </div>
 
-  <footer>
-    <button id="analyzeBtn">Analizar</button>
-  </footer>
+    <div class="counts" id="counts"></div>
+
+    <div class="links">
+      <a id="openTosdr" class="link" href="#" target="_blank" rel="noopener noreferrer">Abrir ToS;DR</a>
+    </div>
+  </section>
+
+  <main id="content" class="content" aria-live="polite"></main>
+
+  <div class="bottom">
+    <button id="analyzeBtn" type="button" class="btn">Analizar</button>
+  </div>
 
   <script src="popup.js"></script>
 </body>

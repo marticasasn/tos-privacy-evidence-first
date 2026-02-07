@@ -19,18 +19,24 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ error: chrome.runtime.lastError.message });
         return;
       }
+      
 
       const hostname = results?.[0]?.result;
-      const domain = normalizeDomain(hostname);
+      if (!hostname || typeof hostname !== "string") {
+        sendResponse({ error: "No se pudo obtener el hostname de la página" });
+        return;
+      }
+
+
+      const host = hostname;
+      const domain = normalizeDomain(host);
 
       if (!domain) {
         sendResponse({ error: "No se pudo normalizar el dominio" });
         return;
       }
 
-      console.log("DOMAIN:", domain);
-      const summary = await fetchTosdrSummary(domain);
-      console.log("SUMMARY BACKGROUND:", summary);
+      const summary = await fetchTosdrSummary(domain, host);
       sendResponse({ summary });
     }
   );

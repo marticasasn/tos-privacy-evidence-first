@@ -1,11 +1,29 @@
-const headerEl = document.getElementById('header');
+const hdrEl = document.getElementById('hdr');
 const contentEl = document.getElementById('content');
 const analyzeBtn = document.getElementById('analyzeBtn');
 
-let expanded = false;
-let currentSummary = null;
+const tabRisks = document.getElementById('tabRisks');
+const tabBlockers = document.getElementById('tabBlockers');
+const tabAll = document.getElementById('tabAll');
 
-analyzeBtn.addEventListener('click', analyze);
+const countsEl = document.getElementById('counts');
+const openTosdrEl = document.getElementById('openTosdr');
+
+let currentSummary = null;
+let expanded = false;
+let activeFilter = 'risks'; // 'risks' | 'blockers' | 'all'
+
+init();
+
+function init() {
+  tabRisks.addEventListener('click', () => setFilter('risks'));
+  tabBlockers.addEventListener('click', () => setFilter('blockers'));
+  tabAll.addEventListener('click', () => setFilter('all'));
+  analyzeBtn.addEventListener('click', analyze);
+
+  setTosdrLink(null);
+  renderStatus('Pulsa “Analizar” para evaluar esta pestaña.');
+}
 
 async function getActiveTabId() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -14,180 +32,316 @@ async function getActiveTabId() {
 }
 
 async function analyze() {
-  analyzeBtn.disabled = true;
   analyzeBtn.textContent = 'Analizando…';
-  contentEl.textContent = '';
-  headerEl.textContent = '';
-  expanded = false;
+  analyzeBtn.disabled = true;
 
   try {
     const tabId = await getActiveTabId();
-    if (tabId == null) {
-      renderStatus('api_error', 'No se pudo detectar la pestaña activa.');
-      return;
-    }
+    if (tabId == null) throw new Error('No se pudo detectar la pestaña activa');
 
     const response = await chrome.runtime.sendMessage({
       type: 'ANALYZE_CURRENT_DOMAIN',
       tabId
     });
 
-    if (response?.error) {
-      renderStatus('api_error', response.error);
-      return;
-    }
+    if (response?.error) throw new Error(response.error);
 
     const summary = response?.summary;
-    if (!summary) {
-      renderStatus('api_error', 'No se pudo obtener el resumen.');
-      return;
-    }
+    currentSummary = summary || null;
 
-    currentSummary = summary;
-    render(summary);
+    expanded = false;
+    setFilter('risks', { silent: true }); // por defecto solo riesgos
+    render(currentSummary);
+
+    analyzeBtn.textContent = 'Reintentar';
   } catch (e) {
-    renderStatus('api_error');
+    currentSummary = null;
+    setTosdrLink(null);
+    hdrEl.textContent = '';
+    renderStatus('No se pudo obtener la información. Pulsa “Reintentar”.');
+    analyzeBtn.textContent = 'Reintentar';
   } finally {
     analyzeBtn.disabled = false;
-    analyzeBtn.textContent = 'Reintentar';
   }
 }
 
-function render(summary) {
-  headerEl.textContent = '';
-  contentEl.textContent = '';
+function setFilter(filter, opts = {}) {
+  activeFilter = filter;
+  expanded = false;
 
-  if (summary.status !== 'ok') {
-    renderHeader(summary); // al menos dominio si existe
-    renderStatus(summary.status);
+  tabRisks.setAttribute('aria-selected', filter === 'risks' ? 'true' : 'false');
+  tabBlockers.setAttribute('aria-selected', filter === 'blockers' ? 'true' : 'false');
+  tabAll.setAttribute('aria-selected', filter === 'all' ? 'true' : 'false');
+
+  if (!opts.silent && currentSummary) render(currentSummary);
+}
+
+function render(summary) {
+  contentEl.textContent = '';
+  hdrEl.textContent = '';
+
+  if (!summary || !summary.status) {
+    setTosdrLink(null);
+    renderStatus('Pulsa “Analizar” para evaluar esta pestaña.');
     return;
   }
 
   renderHeader(summary);
-  renderPoints(summary.points);
-}
 
-function renderHeader({ domain, serviceName, grade }) {
-  if (!domain && !serviceName && !grade) return;
+  // Link ToS;DR: preferimos tosdrUrl si existe
+  setTosdrLink(summary.tosdrUrl || null, summary.serviceId);
 
-  if (domain) {
-    const domainEl = document.createElement('div');
-    domainEl.className = 'domain';
-    domainEl.textContent = domain;
-    headerEl.appendChild(domainEl);
+  // Contadores: usa summary.counts si existe, sino calcula
+  const points = Array.isArray(summary.points) ? summary.points : [];
+  if (summary.counts) {
+    renderCountsFromCounts(summary.counts);
+  } else {
+    renderCountsFromPoints(points);
   }
 
-  if (serviceName) {
-    const serviceEl = document.createElement('div');
-    serviceEl.className = 'service';
-    serviceEl.textContent = serviceName;
-    headerEl.appendChild(serviceEl);
-  }
-
-  if (grade) {
-    const gradeEl = document.createElement('div');
-    gradeEl.className = 'grade ' + (grade === 'A' || grade === 'B' ? 'ok' : 'bad');
-    gradeEl.textContent = `Grade: ${grade}`;
-    headerEl.appendChild(gradeEl);
-  }
-}
-
-function renderPoints(points = []) {
-  if (!points.length) {
-    const msg = document.createElement('div');
-    msg.className = 'status';
-    msg.textContent = 'No hay puntos públicos disponibles para este servicio en ToS;DR.';
-    contentEl.appendChild(msg);
+  if (summary.status !== 'ok') {
+    renderNonOk(summary.status);
     return;
   }
 
-  const ordered = [...points].sort((a, b) => severity(b.type) - severity(a.type));
-  const visible = expanded ? ordered : ordered.slice(0, 6);
+  renderPoints(points);
+}
 
-  visible.forEach(renderPoint);
+function renderHeader(summary) {
+  const host = safeString(summary.host);       // hostname real
+  const registrable = safeString(summary.domain); // dominio registrable
+  const serviceName = safeString(summary.serviceName);
+  const grade = safeString(summary.grade);
 
-  if (points.length > 6) {
-    const toggle = document.createElement('button');
-    toggle.textContent = expanded ? 'Ver menos' : 'Ver más';
-    toggle.addEventListener('click', () => {
+  const hostEl = document.createElement('div');
+  hostEl.className = 'host';
+  hostEl.textContent = host || '(sin host)';
+
+  const svcEl = document.createElement('div');
+  svcEl.className = 'svc';
+
+  if (serviceName) {
+    const strong = document.createElement('strong');
+    strong.textContent = serviceName;
+
+    const tail = document.createElement('span');
+    tail.textContent = registrable ? ` (${registrable})` : '';
+
+    svcEl.textContent = 'Servicio: ';
+    svcEl.appendChild(strong);
+    svcEl.appendChild(tail);
+  } else {
+    svcEl.textContent = registrable ? `Servicio: ${registrable}` : 'Servicio: —';
+  }
+
+  // Opcional: muestra grade si existe
+  if (grade) {
+    const g = document.createElement('div');
+    g.className = 'svc';
+    g.textContent = `Grade: ${grade}`;
+    hdrEl.appendChild(hostEl);
+    hdrEl.appendChild(svcEl);
+    hdrEl.appendChild(g);
+    return;
+  }
+
+  hdrEl.appendChild(hostEl);
+  hdrEl.appendChild(svcEl);
+}
+
+function renderCountsFromCounts(c) {
+  const blocker = Number(c.blocker || 0);
+  const bad = Number(c.bad || 0);
+  const good = Number(c.good || 0);
+  const neutral = Number(c.neutral || 0);
+  countsEl.textContent = `Blocker (${blocker}) · Bad (${bad}) · Good (${good}) · Neutral (${neutral})`;
+}
+
+function renderCountsFromPoints(points) {
+  const c = { blocker: 0, bad: 0, good: 0, neutral: 0 };
+  for (const p of points) {
+    const t = normalizeType(p?.type);
+    c[t] += 1;
+  }
+  renderCountsFromCounts(c);
+}
+
+function renderNonOk(status) {
+  let msg = 'No se pudo obtener la información.';
+  if (status === 'no_coverage') msg = 'Este servicio no está cubierto todavía.';
+  else if (status === 'rate_limited') msg = 'Demasiadas peticiones. Intenta de nuevo en unos minutos.';
+  else if (status === 'api_error') msg = 'Error al consultar el servicio. Pulsa “Reintentar”.';
+  renderStatus(msg);
+}
+
+function renderStatus(text) {
+  contentEl.textContent = '';
+  const box = document.createElement('div');
+  box.className = 'status';
+  box.textContent = String(text || '');
+  contentEl.appendChild(box);
+}
+
+function renderPoints(points) {
+  const ordered = [...points].sort((a, b) => severity(b?.type) - severity(a?.type));
+
+  const filtered = ordered.filter((p) => {
+    const t = normalizeType(p?.type);
+    if (activeFilter === 'blockers') return t === 'blocker';
+    if (activeFilter === 'all') return true;
+    return t === 'blocker' || t === 'bad'; // risks
+  });
+
+  if (filtered.length === 0) {
+    renderStatus('No hay puntos para este filtro.');
+    return;
+  }
+
+  const visible = expanded ? filtered : filtered.slice(0, 6);
+  for (const p of visible) renderPointCard(p);
+
+  if (filtered.length > 6) {
+    const wrap = document.createElement('div');
+    wrap.className = 'moreWrap';
+
+    const btn = document.createElement('button');
+    btn.className = 'moreBtn';
+    btn.type = 'button';
+    btn.textContent = expanded ? 'Ver menos' : 'Ver más';
+
+    btn.addEventListener('click', () => {
       expanded = !expanded;
       contentEl.textContent = '';
       renderPoints(points);
     });
-    contentEl.appendChild(toggle);
+
+    wrap.appendChild(btn);
+    contentEl.appendChild(wrap);
   }
 }
 
-function renderPoint(point) {
+function renderPointCard(point) {
+  const type = normalizeType(point?.type);
+  const titleText = safeString(point?.title) || '(Sin título)';
+  const descText = safeString(point?.description) || '';
+  const source = safeString(point?.source);
+
   const card = document.createElement('div');
-  card.className = `card ${point.type}`;
+  card.className = `card ${type}`;
+
+  const badge = document.createElement('span');
+  badge.className = `badge ${type}`;
+  badge.textContent = labelForType(type);
 
   const title = document.createElement('div');
   title.className = 'card-title';
-  title.textContent = point.title || '(Sin título)';
+  title.textContent = titleText;
 
   const desc = document.createElement('div');
   desc.className = 'card-desc';
 
-  const fullText = point.description || '';
-  const shortText = fullText.length > 160 ? fullText.slice(0, 160) + '…' : fullText;
-
-  let collapsed = fullText.length > 160;
-  desc.textContent = collapsed ? shortText : fullText;
+  const { shortText, hasLong } = shorten(descText, 180);
+  let collapsed = hasLong;
+  desc.textContent = collapsed ? shortText : descText;
 
   const actions = document.createElement('div');
   actions.className = 'card-actions';
 
-  if (collapsed) {
+  if (hasLong) {
     const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'action-btn';
     toggle.textContent = 'Ver detalle';
+
     toggle.addEventListener('click', () => {
       collapsed = !collapsed;
-      desc.textContent = collapsed ? shortText : fullText;
+      desc.textContent = collapsed ? shortText : descText;
       toggle.textContent = collapsed ? 'Ver detalle' : 'Ocultar';
     });
+
     actions.appendChild(toggle);
   }
 
-  if (point.source) {
+  if (source && isSafeHttpUrl(source)) {
     const link = document.createElement('a');
+    link.className = 'action-link';
     link.textContent = 'Ver fuente';
-    link.href = point.source;
+    link.href = source;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
     actions.appendChild(link);
   }
 
+  card.appendChild(badge);
   card.appendChild(title);
-  card.appendChild(desc);
-  card.appendChild(actions);
+  if (descText) card.appendChild(desc);
+  if (actions.childNodes.length > 0) card.appendChild(actions);
 
   contentEl.appendChild(card);
 }
 
-function renderStatus(status, extra) {
-  const msg = document.createElement('div');
-  msg.className = 'status';
-
-  let text = '';
-  switch (status) {
-    case 'no_coverage':
-      text = 'Este servicio no está cubierto todavía.';
-      break;
-    case 'rate_limited':
-      text = 'Demasiadas peticiones. Intenta de nuevo en unos minutos.';
-      break;
-    default:
-      text = 'No se pudo obtener la información.';
+function setTosdrLink(tosdrUrl, serviceId) {
+  // preferimos tosdrUrl
+  if (tosdrUrl && isSafeHttpUrl(tosdrUrl)) {
+    openTosdrEl.textContent = 'Abrir ToS;DR';
+    openTosdrEl.removeAttribute('aria-disabled');
+    openTosdrEl.href = tosdrUrl;
+    return;
   }
 
-  msg.textContent = extra ? `${text}\n${extra}` : text;
-  contentEl.appendChild(msg);
+  // fallback: construir por serviceId
+  if (serviceId || serviceId === 0) {
+    const idStr = String(serviceId);
+    const url = `https://tosdr.org/en/service/${encodeURIComponent(idStr)}`;
+    openTosdrEl.textContent = 'Abrir ToS;DR';
+    openTosdrEl.removeAttribute('aria-disabled');
+    openTosdrEl.href = url;
+    return;
+  }
+
+  // sin link
+  openTosdrEl.textContent = 'Abrir ToS;DR';
+  openTosdrEl.setAttribute('aria-disabled', 'true');
+  openTosdrEl.href = '#';
 }
 
 function severity(type) {
-  return type === 'blocker' ? 4
-    : type === 'bad' ? 3
-    : type === 'neutral' ? 2
-    : 1;
+  const t = normalizeType(type);
+  if (t === 'blocker') return 4;
+  if (t === 'bad') return 3;
+  if (t === 'neutral') return 2;
+  return 1;
+}
+
+function normalizeType(type) {
+  const t = String(type || '').toLowerCase();
+  if (t === 'blocker' || t === 'bad' || t === 'good' || t === 'neutral') return t;
+  return 'neutral';
+}
+
+function labelForType(type) {
+  if (type === 'blocker') return 'BLOCKER';
+  if (type === 'bad') return 'Riesgo';
+  if (type === 'good') return 'Bueno';
+  return 'Neutral';
+}
+
+function safeString(v) {
+  if (v === null || v === undefined) return '';
+  return String(v);
+}
+
+function shorten(text, maxLen) {
+  const t = String(text || '');
+  if (t.length <= maxLen) return { shortText: t, hasLong: false };
+  return { shortText: t.slice(0, maxLen) + '…', hasLong: true };
+}
+
+function isSafeHttpUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
