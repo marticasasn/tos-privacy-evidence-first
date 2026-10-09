@@ -1,76 +1,95 @@
-# ToS/Privacy — Evidence-First
+# ToS/Privacy Evidence-First
 
-Extensión de navegador (Chrome / Manifest V3) que muestra un resumen de los **Términos de Servicio y la Política de Privacidad** del sitio que estás visitando, usando las evaluaciones públicas de [ToS;DR](https://tosdr.org).
+A Chrome extension (Manifest V3) that summarizes the Terms of Service and Privacy Policy of the site you are visiting, using the community ratings from [ToS;DR](https://tosdr.org). Every point it shows links back to its source, and it only makes a network request when you click **Analyze**.
 
-La extensión es *evidence-first*: cada punto que muestra enlaza a su fuente y **solo hace peticiones cuando el usuario pulsa "Analizar"**. No hay análisis en segundo plano ni seguimiento de la navegación.
+## Why
 
-## Funcionalidades
+Nobody reads terms of service, and most "privacy score" tools either run in the background on every page you visit or give you a verdict without showing where it came from. This extension takes the opposite approach:
 
-- Detecta el dominio de la pestaña activa y lo reduce a su dominio registrable (`www.bbc.co.uk` → `bbc.co.uk`).
-- Busca el servicio correspondiente en ToS;DR y muestra:
-  - nombre del servicio y nota (grade A–E),
-  - recuento de puntos por tipo: **Blocker**, **Bad**, **Good**, **Neutral**,
-  - tarjetas con cada punto, su descripción y un enlace a la fuente original.
-- Filtros: **Riesgos** (blocker + bad, por defecto), **Solo blockers** y **Todo**.
-- Intenta obtener los puntos en español y, si no hay, en inglés.
-- Caché local de 24 h por dominio (`chrome.storage.local`) para no repetir peticiones.
-- Pista de subservicio para algunas rutas de `google.com` (Maps, Flights, Search, Travel).
+- **On demand only.** No background analysis, no browsing history, no tracking.
+- **Evidence first.** Each finding is a ToS;DR point with its description and a link to the original clause.
+- **No false matches.** If ToS;DR has no service whose URL exactly matches the domain, it says "no coverage" instead of showing a similarly named service.
 
-## Instalación (modo desarrollador)
+## Features
 
-1. Clona o descarga este repositorio.
-2. Abre `chrome://extensions` en Chrome (o cualquier navegador basado en Chromium).
-3. Activa el **Modo de desarrollador**.
-4. Pulsa **Cargar descomprimida** y selecciona la carpeta del proyecto.
-5. Fija la extensión en la barra, abre cualquier web y pulsa **Analizar**.
+- Reduces the active tab to its registrable domain (`www.bbc.co.uk` becomes `bbc.co.uk`).
+- Shows the service name, its ToS;DR grade (A to E) and a count of **Blocker**, **Bad**, **Good** and **Neutral** points.
+- Filters: **Risks** (blockers and bad points, default), **Blockers only** and **All**.
+- Fetches points in Spanish when available and falls back to English.
+- Caches results locally for 24 hours per domain.
+- Never contacts the API for `localhost`, IP addresses, intranet hosts or private TLDs (`.local`, `.lan`, `.internal`, ...).
+- Subservice hint for some `google.com` paths (Maps, Flights, Search, Travel).
 
-No requiere compilación ni dependencias: es JavaScript plano.
+> The interface is currently in Spanish.
 
-## Estructura
+## Demo
 
-```
-manifest.json                 Manifest V3: permisos, popup, service worker y CSP
-background/service-worker.js  Recibe la petición del popup, lee el hostname de la pestaña y llama a ToS;DR
-lib/tosdr.js                  Normalización de dominio, selección del servicio, llamadas a la API y caché
-popup/popup.html              Interfaz del popup
-popup/popup.js                Renderizado: cabecera, filtros, contadores y tarjetas
-popup/popup.css               Estilos
-icons/icon-128.png            Icono
-```
+<img src="docs/screenshot.png" alt="Extension popup analyzing mail.google.com: Google service with grade E, 5 blocker, 19 bad, 22 good and 16 neutral points, and the first blocker cards with links to their sources" width="335">
 
-## Cómo funciona
+## Tech stack
 
-1. El usuario pulsa **Analizar** en el popup → `popup.js` envía `ANALYZE_CURRENT_DOMAIN` con el `tabId` activo.
-2. El service worker inyecta (vía `activeTab` + `scripting`) una función que devuelve `location.hostname` y `location.pathname`.
-3. `normalizeDomain()` obtiene el dominio registrable.
+- Plain JavaScript (ES modules), HTML and CSS. No build step, no dependencies.
+- Chrome Extensions Manifest V3: service worker, `activeTab`, `scripting`, `storage`.
+- [ToS;DR public API](https://api.tosdr.org): `search/v5` and `service/v3`.
+
+## Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/marticoco24/tos-privacy-evidence-first.git
+   ```
+2. Open `chrome://extensions` in Chrome or any Chromium-based browser.
+3. Turn on **Developer mode**.
+4. Click **Load unpacked** and select the project folder.
+5. Pin the extension, open any website and click **Analyze** (Analizar).
+
+## How it works
+
+1. The popup sends `ANALYZE_CURRENT_DOMAIN` with the active `tabId` to the service worker.
+2. The service worker injects a one-line function (via `activeTab` and `scripting`) that returns `location.hostname` and `location.pathname`.
+3. `normalizeDomain()` reduces the hostname to its registrable domain.
 4. `fetchTosdrSummary()`:
-   - consulta la caché (`tosdr:<dominio>`); si es válida, la devuelve;
-   - si no, llama a `GET https://api.tosdr.org/search/v5?query=<dominio>` y elige el mejor servicio con `pickBestService()`;
-   - descarga los puntos con `GET https://api.tosdr.org/service/v3?id=<id>&lang=es` (y `lang=en` como alternativa);
-   - guarda el resultado en caché 24 h (sin host ni ruta, por privacidad).
-5. El popup muestra el resultado o un estado: `ok`, `no_coverage`, `rate_limited` o `api_error`.
+   - returns the cached result if it is still valid;
+   - otherwise calls `GET /search/v5?query=<domain>` and picks the service with `pickBestService()`;
+   - downloads its points with `GET /service/v3?id=<id>&lang=es`, falling back to `lang=en`;
+   - caches the result for 24 hours (without host or path).
+5. The popup renders the result or one of these states: `ok`, `no_coverage`, `rate_limited`, `api_error`.
 
-## Permisos y privacidad
+## Project structure
 
-| Permiso | Para qué |
+```
+manifest.json                 Manifest V3: permissions, popup, service worker, CSP
+background/service-worker.js  Reads the active tab's hostname and calls the ToS;DR client
+lib/tosdr.js                  Domain normalization, service matching, API calls, cache
+popup/popup.html              Popup markup
+popup/popup.js                Rendering: header, filters, counters, point cards
+popup/popup.css               Styles
+icons/icon-128.png            Extension icon
+```
+
+## Permissions and privacy
+
+| Permission | Purpose |
 |---|---|
-| `activeTab` | Acceder a la pestaña actual solo tras la acción del usuario |
-| `scripting` | Leer el hostname/ruta de esa pestaña |
-| `storage` | Caché local de resultados |
-| `https://api.tosdr.org/*` | Consultar la API de ToS;DR |
+| `activeTab` | Access the current tab only after the user clicks |
+| `scripting` | Read that tab's hostname and path |
+| `storage` | Local result cache |
+| `https://api.tosdr.org/*` | Query the ToS;DR API |
 
-- Lo único que se envía a ToS;DR es el **dominio registrable** (nunca la URL completa ni la ruta).
-- `localhost`, IPs, hosts de intranet y TLDs privados (`.local`, `.lan`, `.internal`…) **no se envían nunca**: se marcan directamente como sin cobertura.
-- Solo se muestra un servicio si alguna de sus URLs en ToS;DR coincide exactamente con el dominio; si no, se indica que no hay cobertura en vez de mostrar un servicio parecido.
-- La caché se guarda solo en local y caduca a las 24 h.
-- La CSP restringe los scripts a la propia extensión y las conexiones a `api.tosdr.org`.
+- The only thing sent to ToS;DR is the registrable domain, never the full URL or path.
+- The cache lives in `chrome.storage.local` and expires after 24 hours.
+- The Content Security Policy limits scripts to the extension itself and connections to `api.tosdr.org`.
 
-## Limitaciones
+## Limitations
 
-- No funciona en páginas internas del navegador (`chrome://`, Chrome Web Store, nueva pestaña, visor de PDF).
-- La cobertura depende de ToS;DR: muchos sitios no tienen evaluación.
-- La normalización de dominios usa una lista reducida de ccTLD/ccSLD, no la Public Suffix List completa.
+- Does not work on internal browser pages (`chrome://`, Chrome Web Store, new tab, PDF viewer).
+- Coverage depends on ToS;DR; many sites have no rating yet.
+- Domain normalization uses a short list of country-code suffixes, not the full Public Suffix List.
 
-## Créditos
+## Credits
 
-Los datos provienen de [ToS;DR — Terms of Service; Didn't Read](https://tosdr.org), un proyecto comunitario. Esta extensión no está afiliada a ToS;DR.
+Data comes from [ToS;DR (Terms of Service; Didn't Read)](https://tosdr.org), a community project. This extension is not affiliated with ToS;DR.
+
+## License
+
+[MIT](LICENSE)

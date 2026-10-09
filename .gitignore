@@ -1,0 +1,23 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Secrets and local config
+.env
+.env.*
+
+# Packaged extension builds
+*.zip
+*.crx
+*.pem
+
+# Tooling, in case it is added later
+node_modules/
+dist/
+*.log

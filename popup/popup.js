@@ -134,7 +134,7 @@ function renderHeader(summary) {
     svcEl.appendChild(strong);
     svcEl.appendChild(tail);
   } else {
-    svcEl.textContent = registrable ? `Servicio: ${registrable}` : 'Servicio: —';
+    svcEl.textContent = registrable ? `Servicio: ${registrable}` : 'Servicio: ?';
   }
   hdrEl.appendChild(svcEl);
 
