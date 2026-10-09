@@ -35,12 +35,17 @@ chrome.scripting.executeScript(
       return;
     }
 
-    const summary = await fetchTosdrSummary(domain, host);
+    try {
+      const summary = await fetchTosdrSummary(domain, host);
 
-    // añadir contexto SOLO para UI (no lo guardes en cache)
-    summary.path = (typeof path === "string") ? path : "";
+      // añadir contexto SOLO para UI (no lo guardes en cache)
+      summary.path = (typeof path === "string") ? path : "";
 
-    sendResponse({ summary });
+      sendResponse({ summary });
+    } catch (e) {
+      // sin esto el popup se queda esperando una respuesta que nunca llega
+      sendResponse({ error: e?.message || "Error inesperado al analizar" });
+    }
   }
 );
 

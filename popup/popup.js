@@ -58,6 +58,7 @@ async function analyze() {
     currentSummary = null;
     setTosdrLink(null);
     hdrEl.textContent = '';
+    countsEl.textContent = '';
     renderStatus('No se pudo analizar esta página. Algunas páginas (chrome://, extensiones, nueva pestaña) no permiten análisis.');
     analyzeBtn.textContent = 'Reintentar';
   } finally {
@@ -81,6 +82,7 @@ function render(summary) {
   hdrEl.textContent = '';
 
   if (!summary || !summary.status) {
+    countsEl.textContent = '';
     setTosdrLink(null);
     renderStatus('Pulsa “Analizar” para evaluar esta pestaña.');
     return;
@@ -111,37 +113,16 @@ function renderHeader(summary) {
   const host = safeString(summary.host);       // hostname real
   const registrable = safeString(summary.domain); // dominio registrable
   const serviceName = safeString(summary.serviceName);
-  const grade = safeString(summary.grade);
+  const rawGrade = safeString(summary.grade);
+  const grade = rawGrade.toUpperCase() === 'N/A' ? '' : rawGrade;
 
   const hostEl = document.createElement('div');
   hostEl.className = 'host';
   hostEl.textContent = host || '(sin host)';
+  hdrEl.appendChild(hostEl);
 
   const svcEl = document.createElement('div');
   svcEl.className = 'svc';
-
-  const path = safeString(summary.path);
-
-  // Heurística: si es google.com y la ruta apunta a flights/maps/etc.
-  const hint = inferSubservice(registrable, path);
-
-  if (hint) {
-    const h = document.createElement('div');
-    h.className = 'svc';
-    h.textContent = `Subservicio: ${hint}`;
-    hdrEl.appendChild(hostEl);
-    hdrEl.appendChild(svcEl);
-    if (grade) {
-      const g = document.createElement('div');
-      g.className = 'svc';
-      g.textContent = `Grade: ${grade}`;
-      hdrEl.appendChild(g);
-    }
-    hdrEl.appendChild(h);
-    return;
-  }
-
-
   if (serviceName) {
     const strong = document.createElement('strong');
     strong.textContent = serviceName;
@@ -155,20 +136,24 @@ function renderHeader(summary) {
   } else {
     svcEl.textContent = registrable ? `Servicio: ${registrable}` : 'Servicio: —';
   }
+  hdrEl.appendChild(svcEl);
 
-  // Opcional: muestra grade si existe
   if (grade) {
     const g = document.createElement('div');
     g.className = 'svc';
     g.textContent = `Grade: ${grade}`;
-    hdrEl.appendChild(hostEl);
-    hdrEl.appendChild(svcEl);
     hdrEl.appendChild(g);
-    return;
   }
 
-  hdrEl.appendChild(hostEl);
-  hdrEl.appendChild(svcEl);
+  // Heurística: si es google.com y la ruta apunta a flights/maps/etc.
+  // Los puntos mostrados siguen siendo los del servicio de arriba.
+  const hint = inferSubservice(registrable, safeString(summary.path));
+  if (hint) {
+    const h = document.createElement('div');
+    h.className = 'svc';
+    h.textContent = `Subservicio detectado: ${hint}`;
+    hdrEl.appendChild(h);
+  }
 }
 
 function renderCountsFromCounts(c) {
@@ -307,6 +292,7 @@ function setTosdrLink(tosdrUrl, serviceId) {
   if (tosdrUrl && isSafeHttpUrl(tosdrUrl)) {
     openTosdrEl.textContent = 'Abrir ToS;DR';
     openTosdrEl.removeAttribute('aria-disabled');
+    openTosdrEl.removeAttribute('tabindex');
     openTosdrEl.href = tosdrUrl;
     return;
   }
@@ -317,6 +303,7 @@ function setTosdrLink(tosdrUrl, serviceId) {
     const url = `https://tosdr.org/en/service/${encodeURIComponent(idStr)}`;
     openTosdrEl.textContent = 'Abrir ToS;DR';
     openTosdrEl.removeAttribute('aria-disabled');
+    openTosdrEl.removeAttribute('tabindex');
     openTosdrEl.href = url;
     return;
   }
@@ -324,6 +311,7 @@ function setTosdrLink(tosdrUrl, serviceId) {
   // sin link
   openTosdrEl.textContent = 'Abrir ToS;DR';
   openTosdrEl.setAttribute('aria-disabled', 'true');
+  openTosdrEl.setAttribute('tabindex', '-1'); // pointer-events:none no bloquea el teclado
   openTosdrEl.href = '#';
 }
 
